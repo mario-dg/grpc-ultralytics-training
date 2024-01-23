@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package training_client;
+
+service TrainingService {
+  rpc StartTraining(StartTrainingRequest) returns (stream InTrainingResponse) {}
+}
+
+message StartTrainingRequest {}
+
+message Metric
+{
+  string name = 1;
+  float value = 2;
+}
+
+message InTrainingResponse
+{
+  int32 epoch = 1;
+  repeated Metric metrics = 2;
+}
