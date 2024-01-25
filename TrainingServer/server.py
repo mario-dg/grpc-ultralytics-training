@@ -3,34 +3,36 @@ import training_pb2_grpc
 from ultralytics import YOLO
 from multiprocessing import Process, Queue
 from concurrent.futures import ThreadPoolExecutor
-from ultralytics.engine.trainer import BaseTrainer
 from training_pb2 import InTrainingResponse, Metric
+
+from custom_trainer import CustomDetectionTrainer
 
 
 class TrainingServicer(training_pb2_grpc.TrainingServiceServicer):
-    progress_queue = Queue()
-
     def __init__(self):
         super().__init__()
-        self.model = YOLO("yolov8m.pt")
-        self.model.add_callback("on_train_epoch_end", TrainingServicer.on_train_epoch_end)
-        self.model.add_callback("on_train_end", TrainingServicer.on_train_end)
-
-    def run_training(self):
-        metrics = self.model.train(data="data.yaml", epochs=15, device=0)
 
     @staticmethod
-    def on_train_epoch_end(trainer: BaseTrainer):
+    def run_training(progress_queue: Queue):
+        model = YOLO("yolov8m.pt")
+        model.add_callback("on_train_epoch_end", TrainingServicer.on_train_epoch_end)
+        model.add_callback("on_train_end", TrainingServicer.on_train_end)
+        model.train(CustomDetectionTrainer, data="data.yaml", epochs=15, device=0, progress_queue=progress_queue)
+
+    @staticmethod
+    def on_train_epoch_end(trainer: CustomDetectionTrainer):
         print("Putting values into queue")
-        TrainingServicer.progress_queue.put((trainer.epoch, trainer.metrics))
+        trainer.progress_queue.put((trainer.epoch, trainer.metrics))
 
     @staticmethod
-    def on_train_end(trainer: BaseTrainer):
+    def on_train_end(trainer: CustomDetectionTrainer):
         print("Training Finished")
-        TrainingServicer.progress_queue.put(None)  # finished training, break infinite loop
+        trainer.progress_queue.put(None)  # finished training, break infinite loop
 
     def StartTraining(self, request, context):
-        training_thread = Process(target=self.run_training)
+        progress_queue = Queue()
+
+        training_thread = Process(target=self.run_training, args=(progress_queue,))
         training_thread.start()
 
         while True:
@@ -48,6 +50,8 @@ class TrainingServicer(training_pb2_grpc.TrainingServiceServicer):
             except Exception as e:
                 print("Queue is empty or no new data available")
                 continue
+
+        training_thread.join()
 
 
 def serve():
